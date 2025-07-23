@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sysinfo.h"
 
 uint64
 sys_exit(void)
@@ -97,11 +98,30 @@ sys_uptime(void)
 }
 
 uint64
-sys_trace(int)
+sys_trace(void)
 {
   int num;
   if(argint(0, &num) < 0)
     return -1;
   myproc()->tracemask = num;
-  return num;
+  return 0;
+}
+
+uint
+sys_sysinfo(void)
+{
+  struct sysinfo s;
+  uint64 p; // user address for struct sysinfo*
+
+  if(argaddr(0, &p) < 0)
+    return -1;
+
+  s.freemem = kgetfree();
+  s.nproc = numproc();
+
+  // copy struct sysinfo from kernel to user address
+  pagetable_t pagetable = myproc()->pagetable;
+  if(copyout(pagetable, p, (char *)(&s), sizeof(s))) 
+    return -1;
+  return 0;
 }

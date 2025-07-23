@@ -18,3 +18,4 @@ user/usys.S
 .gdbinit
 grade-lab-util
 gradelib.py
+.vscode

@@ -107,7 +107,7 @@ sys_trace(void)
   return 0;
 }
 
-uint
+uint64
 sys_sysinfo(void)
 {
   struct sysinfo s;
@@ -123,5 +123,34 @@ sys_sysinfo(void)
   pagetable_t pagetable = myproc()->pagetable;
   if(copyout(pagetable, p, (char *)(&s), sizeof(s))) 
     return -1;
+  return 0;
+}
+
+uint64
+sys_pgaccess(void)
+{
+  uint64 va, umask;
+  int len;
+  argaddr(0, &va); // start of virtual address to check
+  argint(1, &len); // number of pages to check
+  argaddr(2, &umask); // get user address for the bist mask
+
+  uint64 bitmask = 0; 
+  int maxpages = 32; // can only check 32 pages at max
+  if (len > maxpages) {
+    return -1;
+  }
+
+  pte_t* p;
+  for (int i = 0; i < len; i++) {
+    p = walk(myproc()->pagetable, va + i*PGSIZE, 0);
+    uint64 pte = *p;
+    if (pte & PTE_A) {
+      bitmask = bitmask | (1 << i);
+      *p = pte & (~PTE_A); // clear PTE_A bit
+    }
+  }
+
+  copyout(myproc()->pagetable, umask, (char*)(&bitmask), (int)(len/4));
   return 0;
 }

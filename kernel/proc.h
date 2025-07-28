@@ -106,4 +106,5 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   int tracemask;               // Trace system calls
+  struct usyscall *uframe;     // data page for speeding up syscalls
 };

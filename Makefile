@@ -201,7 +201,8 @@ UPROGS=\
 	$U/_trace\
 	$U/_sysinfotest\
 	$U/_pgtbltest\
-
+	$U/_call\
+	$U/_bttest\
 
 
 ifeq ($(LAB),$(filter $(LAB), pgtbl lock))

@@ -156,3 +156,32 @@ sys_pgaccess(void)
   copyout(myproc()->pagetable, umask, (char*)(&bitmask), (int)(len/4));
   return 0;
 }
+
+uint64
+sys_sigalarm(void)
+{
+  int interval;
+  uint64 handler;
+
+  argint(0, &interval);
+  argaddr(1, &handler);
+
+  myproc()->alarmintvl = interval;
+  myproc()->alarmhdlr = handler;
+  myproc()->tickspassed = 0;
+  // store a scratch trapframe below actual trapframe
+  myproc()->alarmfr = (struct trapframe *)(TRAPFRAME - sizeof(struct trapframe)); 
+  myproc()->alarmlock = 0;
+
+  return 0;
+}
+
+uint64
+sys_sigreturn(void)
+{
+  // restore registers and states
+  struct proc *p = myproc();
+  memmove(p->trapframe, p->alarmfr, sizeof(struct trapframe));
+  p->alarmlock = 0;
+  return 0;
+}

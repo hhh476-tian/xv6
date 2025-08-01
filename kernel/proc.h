@@ -106,5 +106,10 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   int tracemask;               // Trace system calls
-  struct usyscall *uframe;     // data page for speeding up syscalls
+  struct usyscall *uframe;     // Data page for speeding up syscalls
+  int alarmintvl;              // Ticks interval for sigalarm syscall
+  uint64 alarmhdlr;            // Address of alarm handler
+  int tickspassed;             // Ticks elapsed after last alarm handler
+  struct trapframe *alarmfr;   // A scracth frame for sigalarm to save registers
+  int alarmlock;               // Indicate an alarm handler is in progress
 };

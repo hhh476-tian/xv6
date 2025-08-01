@@ -76,9 +76,19 @@ usertrap(void)
   if(p->killed)
     exit(-1);
 
-  // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  // timer interrupt.
+  if(which_dev == 2) {
+    p->tickspassed += 1;
+    if ( (p->tickspassed == p->alarmintvl) && (p->alarmlock == 0) ) {
+      p->alarmlock = 1; // indicate alarm handler in progress
+      // save original registers and states to a scratch frame
+      memmove(p->alarmfr, p->trapframe, sizeof(struct trapframe));
+
+      p->tickspassed = 0;
+      p->trapframe->epc = p->alarmhdlr;
+    }
     yield();
+  }
 
   usertrapret();
 }

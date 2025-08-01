@@ -203,6 +203,7 @@ UPROGS=\
 	$U/_pgtbltest\
 	$U/_call\
 	$U/_bttest\
+	$U/_alarmtest\
 
 
 ifeq ($(LAB),$(filter $(LAB), pgtbl lock))

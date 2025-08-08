@@ -158,11 +158,15 @@ found:
 static void
 freeproc(struct proc *p)
 {
-  if(p->trapframe)
+  if(p->trapframe) {
+    kdecref((uint64)p->trapframe);
     kfree((void*)p->trapframe);
+  }
   p->trapframe = 0;
-  if(p->uframe)
+  if(p->uframe) {
+    kdecref((uint64)p->uframe);
     kfree((void*)p->uframe);
+  }
   p->uframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);

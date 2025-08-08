@@ -352,6 +352,7 @@ sfence_vma()
 #define PTE_X (1L << 3)
 #define PTE_U (1L << 4) // 1 -> user can access
 #define PTE_A (1L << 6) // access bit
+#define PTE_C (1L << 8) // 1 -> copy-on-write page 
 
 // shift a physical address to the right place for a PTE.
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
@@ -364,6 +365,9 @@ sfence_vma()
 #define PXMASK          0x1FF // 9 bits
 #define PXSHIFT(level)  (PGSHIFT+(9*(level)))
 #define PX(level, va) ((((uint64) (va)) >> PXSHIFT(level)) & PXMASK)
+
+// extract index of physical address in refcount array
+#define PGREF(pa) (((uint64) pa) / PGSIZE) 
 
 // one beyond the highest possible virtual address.
 // MAXVA is actually one bit less than the max allowed by

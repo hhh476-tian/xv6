@@ -443,14 +443,19 @@ sys_exec(void)
 
   int ret = exec(path, argv);
 
-  for(i = 0; i < NELEM(argv) && argv[i] != 0; i++)
+  for(i = 0; i < NELEM(argv) && argv[i] != 0; i++){
+    kdecref((uint64)argv[i]);
     kfree(argv[i]);
+  }
 
   return ret;
 
  bad:
-  for(i = 0; i < NELEM(argv) && argv[i] != 0; i++)
+  for(i = 0; i < NELEM(argv) && argv[i] != 0; i++){
+    kdecref((uint64)argv[i]);
     kfree(argv[i]);
+  }
+
   return -1;
 }
 

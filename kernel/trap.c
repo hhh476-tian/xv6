@@ -9,12 +9,14 @@
 struct spinlock tickslock;
 uint ticks;
 
-extern char trampoline[], uservec[], userret[];
+extern char trampoline[], uservec[], userret[], end[];
 
 // in kernelvec.S, calls kerneltrap().
 void kernelvec();
 
 extern int devintr();
+
+int cow();
 
 void
 trapinit(void)
@@ -65,6 +67,8 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if((r_scause()==12) || (r_scause()==13) || (r_scause()==15)) {
+    cow();
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
@@ -226,5 +230,69 @@ devintr()
   } else {
     return 0;
   }
+}
+
+// handle a page fault from copy-on-write
+// create new page 
+// return -1 if unsuccessful
+int
+cow()
+{
+  uint64 va, pa; 
+  pte_t *pte;
+  uint flags;
+  char *mem;
+  struct proc *p = myproc();
+
+  // printf("pid: %d\n", p->pid);
+  // vmprint(p->pagetable);
+
+  va = r_stval();
+  if (va >= MAXVA) {
+    p->killed = 1; // kill offending proccess
+    return -1; 
+  }
+
+  va = PGROUNDDOWN(va);
+  if ((pte = walk(p->pagetable, va, 0)) == 0) {
+    printf("page fault: va not in pgtbl\n");
+    p->killed = 1;
+    return -1;
+  }
+
+  // printf("target pte: %p\n", *pte);
+  // printf("target va: %p\n", va);
+  // printf("W: %d C: %d\n", (*pte & PTE_W), (*pte & PTE_C));
+
+  // check is copy-on-write
+  if ((*pte & PTE_C) == 0) {
+    p->killed = 1; // kill on actual page fault
+    return -1;
+  }
+
+  // create new physical page
+  if ((mem = kalloc()) == 0) {
+    p->killed = 1; // kill proccess if no physical mem
+    return -1;
+  }
+  pa = PTE2PA(*pte);
+  memmove(mem, (char*)pa, PGSIZE);
+
+  // set write permission bits
+  flags = PTE_FLAGS(*pte);
+  flags = flags & (~PTE_C);
+  flags = flags | PTE_W;
+
+  // remove old mapping
+  uvmunmap(p->pagetable, va, 1, 1);
+
+  // add new mapping
+  if (mappages(p->pagetable, va, PGSIZE, (uint64)mem, flags) != 0) {
+    panic("Copy-on-write page mapping failed");
+  }
+
+  // re-execute faulting instruction
+  // keep p->trapframe->epc unchanged
+  return 0;
 }
 

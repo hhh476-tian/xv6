@@ -64,6 +64,8 @@ void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
 uint64          kgetfree(void);
+void            kdecref(uint64);
+void            kincref(uint64);
 
 // log.c
 void            initlog(int, struct superblock*);

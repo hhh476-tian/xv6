@@ -204,6 +204,7 @@ UPROGS=\
 	$U/_call\
 	$U/_bttest\
 	$U/_alarmtest\
+	$U/_cowtest\
 
 
 ifeq ($(LAB),$(filter $(LAB), pgtbl lock))

@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -180,6 +182,7 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
+      kdecref(pa);
       kfree((void*)pa);
     }
     *pte = 0;
@@ -235,6 +238,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     }
     memset(mem, 0, PGSIZE);
     if(mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_W|PTE_X|PTE_R|PTE_U) != 0){
+      kdecref((uint64)mem);
       kfree(mem);
       uvmdealloc(pagetable, a, oldsz);
       return 0;
@@ -278,6 +282,7 @@ freewalk(pagetable_t pagetable)
       panic("freewalk: leaf");
     }
   }
+  kdecref((uint64)pagetable);
   kfree((void*)pagetable);
 }
 
@@ -303,7 +308,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -312,19 +316,23 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
+
+    // clear write bit and set copy-on-write bit
+    flags = flags & (~PTE_W);
+    flags = flags | PTE_C;
+
+    // set new flags on parents
+    *pte = PA2PTE(pa) | flags;
+
+    // increase reference count
+    kincref(pa);
+
+    // map child pages to parent pages
+    if(mappages(new, i, PGSIZE, (uint64)pa, flags) != 0){
+      panic("uvmcopy: map child to parent failed");
     }
   }
   return 0;
-
- err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
-  return -1;
 }
 
 // mark a PTE invalid for user access.
@@ -347,6 +355,7 @@ int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
+  pte_t *pte;
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
@@ -356,7 +365,42 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
-    memmove((void *)(pa0 + (dstva - va0)), src, n);
+
+    if ((pte = walk(pagetable, va0, 0)) == 0) {
+      panic("copyout: va not in pagetable");
+    }
+
+    // handle COW page
+    if ((*pte & PTE_C) != 0) {
+      char *mem;
+      uint flags;
+
+      // create new physical page
+      if ((mem = kalloc()) == 0) {
+        struct proc *p = myproc();
+        p->killed = 1; // kill process if no more memory
+        return -1;
+      }
+      memmove(mem, (char*)pa0, PGSIZE);
+
+      // set write permission bits
+      flags = PTE_FLAGS(*pte);
+      flags = flags & (~PTE_C);
+      flags = flags | PTE_W;
+
+      // remove old mapping
+      uvmunmap(pagetable, va0, 1, 1);
+
+      // add new mapping
+      if (mappages(pagetable, va0, PGSIZE, (uint64)mem, flags) != 0) {
+        panic("Copy-on-write page mapping failed");
+      }
+
+      // copyout content
+      memmove((void *)((uint64)mem + (dstva - va0)), src, n);
+    } else {
+      memmove((void *)(pa0 + (dstva - va0)), src, n);
+    }
 
     len -= n;
     src += n;

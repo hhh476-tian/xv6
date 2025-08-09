@@ -55,8 +55,9 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Do not free with non-zero refcounts
-  if (refcounts[PGREF(pa)] >= 1) {
+  // Do not free with multiple refcounts
+  if (refcounts[PGREF(pa)] > 1) {
+    kdecref((uint64)pa); // decrease ref count
     return;
   }
 

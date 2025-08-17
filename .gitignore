@@ -16,6 +16,10 @@ mkfs
 kernel/kernel
 user/usys.S
 .gdbinit
-grade-lab-util
+grade-lab-*
 gradelib.py
 .vscode
+*.dSYM
+/notxv6
+barrier
+ph

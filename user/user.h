@@ -30,6 +30,7 @@ int ugetpid(void);
 int pgaccess(void *base, int len, void *mask);
 int sigalarm(int ticks, void (*handler)());
 int sigreturn(void);
+int connect(uint32, uint16, uint16);
 
 // ulib.c
 int stat(const char*, struct stat*);

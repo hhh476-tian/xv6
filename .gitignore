@@ -23,3 +23,5 @@ gradelib.py
 /notxv6
 barrier
 ph
+lab-*.json
+*.pcap

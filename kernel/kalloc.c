@@ -10,6 +10,7 @@
 #include "defs.h"
 
 void freerange(void *pa_start, void *pa_end);
+int getcpuid();
 
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
@@ -21,14 +22,16 @@ struct run {
 struct {
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+} kmem[NCPU];
 
 uint64 refcounts[PHYSTOP / PGSIZE];
 
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  for (int i = 0; i < NCPU; i++) {
+    initlock(&kmem[i].lock, "kmem");
+  }
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -51,6 +54,7 @@ void
 kfree(void *pa)
 {
   struct run *r;
+  int i;
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
@@ -66,10 +70,13 @@ kfree(void *pa)
 
   r = (struct run*)pa;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  // get lock per cpu
+  i = getcpuid();
+
+  acquire(&kmem[i].lock);
+  r->next = kmem[i].freelist;
+  kmem[i].freelist = r;
+  release(&kmem[i].lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -79,13 +86,32 @@ void *
 kalloc(void)
 {
   struct run *r;
+  int i;
 
-  acquire(&kmem.lock);
-  r = kmem.freelist;
-  if(r)
-    kmem.freelist = r->next;
+  i = getcpuid();
+
+  acquire(&kmem[i].lock);
+  r = kmem[i].freelist;
+  if(r) {
+    kmem[i].freelist = r->next;
+  } else {
+    // steal memory from other cpu
+    for (int j = 0; j < NCPU; j++) {
+      if (i == j) {
+        continue;
+      }
+      acquire(&kmem[j].lock);
+      r = kmem[j].freelist;
+      if(r) {
+        kmem[j].freelist = r->next;
+        release(&kmem[j].lock);
+        break;
+      }
+      release(&kmem[j].lock);
+    }
+  }
   refcounts[PGREF(r)] = 1;
-  release(&kmem.lock);
+  release(&kmem[i].lock);
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
@@ -97,7 +123,12 @@ uint64
 kgetfree(void)
 {
   uint64 num = 0;
-  struct run *r = kmem.freelist;
+  struct run *r;
+  int i;
+
+  i = getcpuid();
+  
+  r = kmem[i].freelist;
   while (r) {
     num++;
     r = r->next;
@@ -107,14 +138,31 @@ kgetfree(void)
 
 void
 kdecref(uint64 pa) {
-  acquire(&kmem.lock);
+  int i;
+
+  i = getcpuid();
+  acquire(&kmem[i].lock);
   refcounts[PGREF(pa)] -= 1;
-  release(&kmem.lock);
+  release(&kmem[i].lock);
 }
 
 void
 kincref(uint64 pa) {
-  acquire(&kmem.lock);
+  int i;
+
+  i = getcpuid();
+  acquire(&kmem[i].lock);
   refcounts[PGREF(pa)] += 1;
-  release(&kmem.lock);
+  release(&kmem[i].lock);
+}
+
+// safely get cpu id with interrupts turnned off
+int getcpuid() {
+  int i;
+
+  push_off();
+  i = cpuid();
+  pop_off();
+
+  return i;
 }

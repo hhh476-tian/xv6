@@ -69,6 +69,7 @@ bget(uint dev, uint blockno)
   int index;
   int lru;
   uint maxticks;
+  acquire(&bcache.lock);
 
   // Is the block already cached?
   index = bhash(blockno);
@@ -77,6 +78,7 @@ bget(uint dev, uint blockno)
   if(b->dev == dev && b->blockno == blockno){
     b->refcnt++;
     release(&bcache.bucklocks[index]);
+    release(&bcache.lock);
     acquiresleep(&b->lock);
     return b;
   }
@@ -89,6 +91,7 @@ bget(uint dev, uint blockno)
     if (b->dev == dev && b->blockno == blockno) {
       b->refcnt++;
       release(&bcache.bucklocks[i]);
+      release(&bcache.lock);
       acquiresleep(&b->lock);
       return b;
     }
@@ -101,6 +104,7 @@ bget(uint dev, uint blockno)
     if (b->dev == dev && b->blockno == blockno) {
       b->refcnt++;
       release(&bcache.bucklocks[i]);
+      release(&bcache.lock);
       acquiresleep(&b->lock);
       return b;
     }
@@ -109,7 +113,7 @@ bget(uint dev, uint blockno)
 
   // Not cached.
   // Recycle the least recently used (LRU) unused buffer.
-  acquire(&bcache.lock);
+  // acquire(&bcache.lock);
   maxticks = 0;
   lru = -1;
   for (int i = index; i < NBUCKET; i++) {

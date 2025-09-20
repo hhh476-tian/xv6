@@ -23,7 +23,7 @@
 #include "fs.h"
 #include "buf.h"
 
-#define NBUCKET 71
+#define NBUCKET 13
 
 struct {
   struct spinlock lock;
@@ -32,9 +32,11 @@ struct {
   struct spinlock bucklocks[NBUCKET];
 } bcache;
 
-int bhash(uint blockno);
-
-extern uint ticks;
+void buckadd(struct buf *b);
+void buckdel(struct buf *b);
+int inbuck(uint dev, uint blockno);
+uint readticks();
+void checker();
 
 void
 binit(void)
@@ -43,20 +45,18 @@ binit(void)
 
   initlock(&bcache.lock, "bcache");
 
-  for (int i = 0; i < NBUF; i++) {
-    b = &bcache.buf[i];
-    initsleeplock(&b->lock, "buffer");
-  }
-
-  for(int i = 0; i < NBUCKET; i++){
-    // b = &bcache.buckets[i];
-    if (i >= NBUF) {
-      bcache.buckets[i] = &bcache.buf[0];
-    } else {
-      bcache.buckets[i] = &bcache.buf[i];
-    }
+  for(int i = 0; i < NBUCKET; i++) {
     initlock(&bcache.bucklocks[i], "bcache.bucket");
   }
+
+  // put all bufs in bucket 0 
+  bcache.buckets[0] = bcache.buf;
+  for(b = bcache.buf; b < bcache.buf+NBUF; b++){
+    b->blockno = 0;
+    b->next = b + 1;
+    initsleeplock(&b->lock, "buffer");
+  }
+  (b-1)->next = 0; // correct the last one
 }
 
 // Look through buffer cache for block on device dev.
@@ -65,95 +65,68 @@ binit(void)
 static struct buf*
 bget(uint dev, uint blockno)
 {
-  struct buf *b;
-  int index;
-  int lru;
-  uint maxticks;
-  acquire(&bcache.lock);
+  struct buf *b, *lru;
+  int buckno;
+  int bi;
+  uint oldest;
 
-  // Is the block already cached?
-  index = bhash(blockno);
-  acquire(&bcache.bucklocks[index]);
-  b = bcache.buckets[index];
-  if(b->dev == dev && b->blockno == blockno){
-    b->refcnt++;
-    release(&bcache.bucklocks[index]);
-    release(&bcache.lock);
-    acquiresleep(&b->lock);
-    return b;
-  }
-  release(&bcache.bucklocks[index]);
+  buckno = blockno % NBUCKET;
 
-  // linear search an empty slot in hash table
-  for (int i = index; i < NBUCKET; i++) {
-    acquire(&bcache.bucklocks[i]);
-    b = bcache.buckets[i];
+  // check if in in cache
+  acquire(&bcache.bucklocks[buckno]);
+  bi = buckno % NBUCKET;
+  b = bcache.buckets[bi];
+  while (b) {
     if (b->dev == dev && b->blockno == blockno) {
       b->refcnt++;
-      release(&bcache.bucklocks[i]);
-      release(&bcache.lock);
+      release(&bcache.bucklocks[buckno]);
       acquiresleep(&b->lock);
       return b;
     }
-    release(&bcache.bucklocks[i]);
+    b = b->next;
   }
 
-  for (int i = 0; i < index; i++) {
-    acquire(&bcache.bucklocks[i]);
-    b = bcache.buckets[i];
-    if (b->dev == dev && b->blockno == blockno) {
-      b->refcnt++;
-      release(&bcache.bucklocks[i]);
-      release(&bcache.lock);
-      acquiresleep(&b->lock);
-      return b;
+  // evict a buffer to make space
+  lru = 0;
+  oldest = ~0x0U; 
+  for (int i = 0; i < NBUCKET; i++) {
+    bi = (buckno + i) % NBUCKET;
+    if (bi != buckno) {
+      acquire(&bcache.bucklocks[bi]);
     }
-    release(&bcache.bucklocks[i]);
-  }
 
-  // Not cached.
-  // Recycle the least recently used (LRU) unused buffer.
-  // acquire(&bcache.lock);
-  maxticks = 0;
-  lru = -1;
-  for (int i = index; i < NBUCKET; i++) {
-    acquire(&bcache.bucklocks[i]);
-    b = bcache.buckets[i];
-    if(b->refcnt == 0) {
-        if (b->lastuse >= maxticks) {
-          maxticks = b->lastuse;
-          lru = i;
-        }
+    b = bcache.buckets[bi];
+    while (b) {
+      if (b->refcnt == 0 && b->lastuse < oldest) {
+        oldest = b->lastuse;
+        lru = b;
+        break;
+      }
+      b = b->next;
     }
-    release(&bcache.bucklocks[i]);
-  }
 
-  for (int i = 0; i < index; i++) {
-    acquire(&bcache.bucklocks[i]);
-    b = bcache.buckets[i];
-    if(b->refcnt == 0) {
-        if (b->lastuse >= maxticks) {
-          maxticks = b->lastuse;
-          lru = i;
-        }
+    if (bi != buckno) {
+      release(&bcache.bucklocks[bi]);
     }
-    release(&bcache.bucklocks[i]);
-  } 
-
-  if (lru != -1) {
-    b = bcache.buckets[lru];
-    b->dev = dev;
-    b->blockno = blockno;
-    b->valid = 0;
-    b->lastuse = ticks;
-    b->refcnt = 1;
-    release(&bcache.lock);
-    acquiresleep(&b->lock);
-    return b;
   }
 
-  release(&bcache.lock);
-  panic("bget: no buffers");
+  if (!lru) {
+    release(&bcache.bucklocks[buckno]);
+    panic("bget: no buffers");
+  }
+
+  buckdel(lru);
+
+  lru->dev     = dev;
+  lru->blockno = blockno;
+  lru->valid   = 0;
+  lru->refcnt  = 1;
+  lru->lastuse = readticks();
+  buckadd(lru);
+
+  release(&bcache.bucklocks[buckno]);
+  acquiresleep(&lru->lock);
+  return lru;
 }
 
 // Return a locked buf with the contents of the indicated block.
@@ -189,15 +162,9 @@ brelse(struct buf *b)
 
   releasesleep(&b->lock);
 
-  for(int i = 0; i < NBUCKET; i++){
-    acquire(&bcache.bucklocks[i]);
-    if(b->blockno == bcache.buckets[i]->blockno){
-      bcache.buckets[i]->refcnt--;
-      release(&bcache.bucklocks[i]);
-      break;
-    }
-    release(&bcache.bucklocks[i]);
-  }
+  acquire(&bcache.bucklocks[b->blockno%NBUCKET]);
+  b->refcnt--;
+  release(&bcache.bucklocks[b->blockno%NBUCKET]);
 }
 
 void
@@ -214,9 +181,116 @@ bunpin(struct buf *b) {
   release(&bcache.lock);
 }
 
-// simple hash function by blockno
-int 
-bhash(uint blockno) {
-  return (int)blockno % NBUCKET;
+// add a buf to its bucket, 
+// must use with bucket locks held by caller
+void
+buckadd(struct buf *b) 
+{
+  int buckno = b->blockno % NBUCKET;
+  struct buf *s = bcache.buckets[buckno];
+  struct buf *prev;
+
+  // is bucket empty?
+  if (!s) {
+    bcache.buckets[buckno] = b;
+    b->next = 0;
+
+    return;
+  } 
+
+  while (s) {
+    if (b->dev == s->dev && b->blockno == s->blockno) {
+      panic("Adding existing blockno to bucket");
+    }
+    prev = s;
+    s = s->next;
+  }
+
+  prev->next = b;
+  b->next = 0;
 }
 
+// remove a buf from its bucket, 
+// must use with bucket locks held by caller
+void
+buckdel(struct buf *b)
+{
+  int buckno = b->blockno % NBUCKET;
+  struct buf *s = bcache.buckets[buckno];
+  struct buf *prev = 0;
+
+  if (!s) {
+    panic("bcache: empty bucket");
+  }
+
+  if(b->dev == s->dev && b->blockno == s->blockno) {
+    bcache.buckets[buckno] = s->next;
+    return;
+  }
+
+  while (s) {
+    if(b->dev == s->dev && b->blockno == s->blockno) {
+      prev->next = s->next;
+      return;
+    }
+    prev = s;
+    s = s->next;
+  }
+
+  panic("bcache delete");
+}
+
+// check if a buffer with given blockno in a given bucket
+// caller need to hold the lock
+int
+inbuck(uint dev, uint blockno)
+{
+  int buckno = blockno % NBUCKET;
+  struct buf *s = bcache.buckets[buckno];
+
+  while (s) {
+    if(dev == s->dev && blockno == s->blockno) {
+      return 1;
+    }
+    s = s->next;
+  }
+
+  return 0;
+}
+
+uint
+readticks()
+{
+  return ticks;
+}
+
+// check the invariance that there are NBUF buf in table
+void
+checker() 
+{
+  struct buf *b;
+  int count=0;
+
+  for(int i = 0; i < NBUCKET; i++){
+    b = bcache.buckets[i];
+    while (b) {
+      count += 1;
+      b = b->next; 
+    }
+  }
+
+  if (count < NBUF - 3) {
+    printf("missing buf, buf in table: %d\n", count);
+    count = 0;
+    for(int i = 0; i < NBUCKET; i++){
+      b = bcache.buckets[i];
+      printf("looking bucket: %d\n", i);
+      while (b) {
+        count += 1;
+        printf("count: %d, bucket has block %d with ref counts: %d\n", count, b->blockno, b->refcnt);
+        b = b->next; 
+    }
+  }
+    panic("bache checker");
+  }
+}

@@ -6,6 +6,8 @@ struct buf {
   struct sleeplock lock;
   uint refcnt;
   uint lastuse;   // used for LRU
+  struct buf *prev;
+  struct buf *next;
   uchar data[BSIZE];
 };
 

@@ -56,13 +56,13 @@ OBJS += \
 endif
 
 
-ifeq ($(LAB),net)
+# ifeq ($(LAB),net)
 OBJS += \
 	$K/e1000.o \
 	$K/net.o \
 	$K/sysnet.o \
 	$K/pci.o
-endif
+# endif
 
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-

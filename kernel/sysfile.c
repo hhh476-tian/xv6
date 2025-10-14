@@ -254,6 +254,8 @@ create(char *path, short type, short major, short minor)
     ilock(ip);
     if(type == T_FILE && (ip->type == T_FILE || ip->type == T_DEVICE))
       return ip;
+    if(type == T_SYMLINK && ip->type == T_SYMLINK)
+      return ip;
     iunlockput(ip);
     return 0;
   }
@@ -313,6 +315,33 @@ sys_open(void)
       iunlockput(ip);
       end_op();
       return -1;
+    }
+  }
+
+  // find target actual inode if symbolic link
+  if (!(omode & O_NOFOLLOW)) {
+    int i = 0;
+    while (ip->type == T_SYMLINK) {
+      // read new path
+      if (readi(ip, 0, (uint64)path, 0, MAXPATH) <= 0) {
+        panic("open symlink: readi");
+      }
+      iunlockput(ip);
+
+      // find new ip 
+      if((ip = namei(path)) == 0){
+        end_op();
+        return -1;
+      }
+      ilock(ip);
+      i++;
+
+      // fail if exceed max nested symlink depth
+      if (i >= MAXDEPTH) {
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
     }
   }
 
@@ -511,4 +540,27 @@ sys_connect(void)
   }
 
   return fd;
+}
+
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  struct inode *ip;
+
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0) {
+    return -1;
+  }
+
+  // write target path to file content
+  begin_op();
+  ip = create(path, T_SYMLINK, 0, 0);
+
+  if (writei(ip, 0, (uint64)target, 0, MAXPATH) != MAXPATH) {
+    panic("symlink: writei");
+  }
+  iunlockput(ip);
+  end_op();
+
+  return 0;
 }

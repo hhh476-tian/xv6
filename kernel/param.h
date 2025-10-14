@@ -11,3 +11,4 @@
 #define NBUF         (MAXOPBLOCKS*3)  // size of disk block cache
 #define FSSIZE       200000  // size of file system in blocks
 #define MAXPATH      128   // maximum file path name
+#define MAXDEPTH     10 // maximum depth for iterated symbolic links

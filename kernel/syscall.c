@@ -110,6 +110,7 @@ extern uint64 sys_pgaccess(void);
 extern uint64 sys_sigalarm(void);
 extern uint64 sys_sigreturn(void);
 extern uint64 sys_connect(void);
+extern uint64 sys_symlink(void);
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]      sys_fork,
@@ -139,6 +140,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_sigalarm]  sys_sigalarm,
 [SYS_sigreturn] sys_sigreturn,
 [SYS_connect]   sys_connect,
+[SYS_symlink]   sys_symlink,
 };
 
 static char *syscall_names[] = {
@@ -168,7 +170,8 @@ static char *syscall_names[] = {
   "pgaccess",
   "sigalarm",
   "sigreturn",
-  "sysconnect"
+  "sysconnect",
+  "symlink"
 };
 
 void

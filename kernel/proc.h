@@ -1,3 +1,4 @@
+#include "mm.h"
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -112,4 +113,6 @@ struct proc {
   int tickspassed;             // Ticks elapsed after last alarm handler
   struct trapframe *alarmfr;   // A scracth frame for sigalarm to save registers
   int alarmlock;               // Indicate an alarm handler is in progress
+  struct vma vma_areas[NVMA];  // Virtual Memory Areas
+  struct spinlock vma_lock;      // Lock for VMA 
 };

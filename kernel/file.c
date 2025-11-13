@@ -55,6 +55,18 @@ filedup(struct file *f)
   return f;
 }
 
+// Decrease ref count for file f.
+struct file*
+filededup(struct file *f)
+{
+  acquire(&ftable.lock);
+  if(f->ref < 1)
+    panic("filededup");
+  f->ref--;
+  release(&ftable.lock);
+  return f;
+}
+
 // Close file f.  (Decrement ref count, close when reaches 0.)
 void
 fileclose(struct file *f)

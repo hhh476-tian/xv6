@@ -10,6 +10,7 @@ struct stat;
 struct superblock;
 struct mbuf;
 struct sock;
+struct vma;
 
 // bio.c
 void            binit(void);
@@ -31,6 +32,7 @@ int             exec(char*, char**);
 struct file*    filealloc(void);
 void            fileclose(struct file*);
 struct file*    filedup(struct file*);
+struct file*    filededup(struct file*);
 void            fileinit(void);
 int             fileread(struct file*, uint64, int n);
 int             filestat(struct file*, uint64 addr);
@@ -213,3 +215,6 @@ void            sockclose(struct sock *);
 int             sockread(struct sock *, uint64, int);
 int             sockwrite(struct sock *, uint64, int);
 void            sockrecvudp(struct mbuf*, uint32, uint16, uint16);
+
+// mm.c
+void            clear_vma(void);

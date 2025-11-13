@@ -30,7 +30,8 @@ OBJS = \
   $K/sysfile.o \
   $K/kernelvec.o \
   $K/plic.o \
-  $K/virtio_disk.o
+  $K/virtio_disk.o \
+  $K/mm.o
 
 OBJS_KCSAN = \
   $K/start.o \
@@ -206,6 +207,7 @@ UPROGS=\
 	$U/_alarmtest\
 	$U/_cowtest\
 	$U/_uthread\
+	$U/_mmaptest\
 
 $U/uthread_switch.o : $U/uthread_switch.S
 	$(CC) $(CFLAGS) -c -o $U/uthread_switch.o $U/uthread_switch.S

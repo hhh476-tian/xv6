@@ -52,6 +52,7 @@ procinit(void)
   initlock(&wait_lock, "wait_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
+      initlock(&p->vma_lock, "vma");
       p->kstack = KSTACK((int) (p - proc));
   }
 }
@@ -315,6 +316,13 @@ fork(void)
   }
   np->sz = p->sz;
 
+  // copy virtual memory area
+  memmove(np->vma_areas, p->vma_areas, sizeof(p->vma_areas));
+  for (i = 0; i < NVMA; i++) {
+    if (p->vma_areas[i].addr != 0)
+      filedup(p->vma_areas[i].f);
+  }
+
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -372,6 +380,9 @@ exit(int status)
 
   if(p == initproc)
     panic("init exiting");
+
+  // Clear all VMA
+  clear_vma();
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){

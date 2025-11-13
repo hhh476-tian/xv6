@@ -5,6 +5,9 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -17,6 +20,7 @@ void kernelvec();
 extern int devintr();
 
 int cow();
+int ldvma(uint64 va);
 
 void
 trapinit(void)
@@ -246,9 +250,6 @@ cow()
   char *mem;
   struct proc *p = myproc();
 
-  // printf("pid: %d\n", p->pid);
-  // vmprint(p->pagetable);
-
   va = r_stval();
   if (va >= MAXVA) {
     p->killed = 1; // kill offending proccess
@@ -262,14 +263,16 @@ cow()
     return -1;
   }
 
-  // printf("target pte: %p\n", *pte);
-  // printf("target va: %p\n", va);
-  // printf("W: %d C: %d\n", (*pte & PTE_W), (*pte & PTE_C));
-
-  // check is copy-on-write
+  // check if it is not copy-on-write
   if ((*pte & PTE_C) == 0) {
-    p->killed = 1; // kill on actual page fault
-    return -1;
+    // check if it is not vma loading
+    if (ldvma(va) == -1) {
+      printf("Page Fault.\n");
+      p->killed = 1; // kill on actual page fault
+      return -1;
+    } else {
+      return 0;
+    }
   }
 
   // create new physical page
@@ -298,3 +301,53 @@ cow()
   return 0;
 }
 
+// load virtual memory area page
+// return -1 if the given virtual address is not in VMA
+int
+ldvma(uint64 va)
+{
+  struct proc *p = myproc();
+  char *mem;
+  int i;
+
+  // find which VMA 
+  for (i = 0; i < NVMA; i++) {
+    if (p->vma_areas[i].addr == 0) {
+      continue;
+    }
+    if (va >= p->vma_areas[i].addr && va < p->vma_areas[i].addr + p->vma_areas[i].length) {
+      break;
+    }
+  }
+
+  // va not in any VMA
+  if (i == NVMA) {
+    printf("faulting virtual address: %p\n", va);
+    return -1;
+  }
+
+  struct inode *ip = p->vma_areas[i].f->ip;
+  int off = p->vma_areas[i].offset;
+  uint64 addr = p->vma_areas[i].addr;
+  uint64 uaddr = PGROUNDDOWN(va);
+  int perm = PTE_V | PTE_U | p->vma_areas[i].perm << 1;
+
+  // create physical page
+  if ((mem = kalloc()) == 0) {
+    p->killed = 1;
+    return -1;
+  }
+
+  // create new mapping
+  if (mappages(p->pagetable, uaddr, PGSIZE, (uint64)mem, perm) != 0) {
+    panic("Create VMA mapping failed");
+  }
+
+  // load file content into user address
+  int fileoff = (va - addr) + off;
+  ilock(ip);
+  int n = readi(ip, 1, uaddr, fileoff, PGSIZE);
+  iunlock(ip);
+  memset(mem + n, 0, PGSIZE - n);
+  return 0;
+}
